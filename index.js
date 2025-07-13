@@ -3,8 +3,6 @@ const bodyParser = require("body-parser");
 const cors = require("cors");
 const admin = require("firebase-admin");
 const { google } = require("googleapis");
-const path = require("path");
-const fs = require("fs");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const PDFDocument = require("pdfkit");
 const stream = require("stream");
@@ -12,11 +10,10 @@ const stream = require("stream");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Enhanced CORS setup
+// CORS setup
 const allowedOrigins = ["https://law-sphere.web.app", "http://localhost:3000"];
 const corsOptions = {
   origin: (origin, callback) => {
-    console.log("CORS Origin check:", origin);
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -46,14 +43,9 @@ const serviceAccount = {
   client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
 };
 
-try {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
-  console.log("Firebase initialized successfully");
-} catch (error) {
-  console.error("Firebase initialization error:", error.message);
-}
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 const db = admin.firestore();
 
@@ -73,41 +65,26 @@ const conversation = [
   },
 ];
 
-// Google Docs OAuth Setup
-let credentials = {};
-const CREDENTIALS_PATH = path.join(__dirname, "credentials.json");
+// Google OAuth Setup
+const credentials = {
+  web: {
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,
+    redirect_uris: [process.env.GOOGLE_REDIRECT_URI],
+  },
+};
 
-try {
-  credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH));
-  console.log("Credentials loaded from file");
-} catch (err) {
-  console.error("Error loading credentials.json:", err.message);
-  credentials = {
-    installed: {
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      redirect_uris: [process.env.GOOGLE_REDIRECT_URI || "http://localhost"],
-    },
-  };
-  console.log("Falling back to environment variables for credentials");
-}
-
-const { client_id, client_secret, redirect_uris } = credentials.web || {};
+const { client_id, client_secret, redirect_uris } = credentials.web;
 const oAuth2Client = new google.auth.OAuth2(
   client_id,
   client_secret,
-  redirect_uris[0] ||
-    process.env.GOOGLE_REDIRECT_URI ||
-    "https://0d741327-a5e5-4ad9-a587-70d23bc5bb36-00-3r683pxcjo2u7.pike.replit.dev/auth/google/callback",
+  redirect_uris[0],
 );
-
 let oauth2Tokens = null;
 
 // OAuth Routes
 app.get("/auth/google", (req, res) => {
-  console.log("Generating auth URL for origin:", req.headers.origin);
   if (!client_id || !client_secret) {
-    console.error("OAuth not configured: Missing client_id or client_secret");
     return res.status(500).json({ error: "OAuth not configured" });
   }
   const authUrl = oAuth2Client.generateAuthUrl({
@@ -117,36 +94,25 @@ app.get("/auth/google", (req, res) => {
       "https://www.googleapis.com/auth/userinfo.profile",
       "https://www.googleapis.com/auth/userinfo.email",
     ],
-    redirect_uri: redirect_uris[0] || process.env.GOOGLE_REDIRECT_URI,
+    redirect_uri: redirect_uris[0],
   });
-  console.log("Generated Auth URL:", authUrl);
   res.redirect(authUrl);
 });
 
 app.get("/auth/google/callback", async (req, res) => {
   const code = req.query.code;
-  console.log("Callback received with code:", code);
-  if (!code) {
+  if (!code)
     return res.status(400).json({ error: "No authorization code provided" });
-  }
 
   try {
     const { tokens } = await oAuth2Client.getToken(code);
-    console.log("OAuth tokens received:", tokens);
     oAuth2Client.setCredentials(tokens);
     oauth2Tokens = tokens;
 
     const oauth2 = google.oauth2({ version: "v2", auth: oAuth2Client });
     const userInfo = await oauth2.userinfo.get();
-    console.log("User info:", userInfo.data);
-
-    res.json({
-      message: "Login successful",
-      user: userInfo.data,
-      tokens,
-    });
+    res.json({ message: "Login successful", user: userInfo.data, tokens });
   } catch (err) {
-    console.error("OAuth error:", err.message);
     res.status(500).json({ error: "OAuth failed", details: err.message });
   }
 });
@@ -485,7 +451,5 @@ app.get("/", (req, res) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(
-    `Server running on port ${PORT} - Access at Replit URL: https://0d741327-a5e5-4ad9-a587-70d23bc5bb36-00-3r683pxcjo2u7.pike.replit.dev`,
-  );
+  console.log(`🚀 Server live at http://localhost:${PORT}`);
 });
